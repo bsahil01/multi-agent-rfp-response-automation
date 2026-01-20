@@ -1,35 +1,26 @@
 {
-  "name": "rfp-automation-frontend",
-  "version": "1.0.0",
+  "name": "frontend",
+  "version": "0.1.0",
   "private": true,
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
-    "react-scripts": "5.0.1"
-  },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
   },
-  "proxy": "http://localhost:8000",
-  "eslintConfig": {
-    "extends": [
-      "react-app"
-    ]
+  "dependencies": {
+    "next": "16.1.4",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.4",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
