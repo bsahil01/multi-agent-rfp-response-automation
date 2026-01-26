@@ -2,4 +2,29 @@
 __pycache__
 .DS_Store
 *.tgz
+
+# dependencies
 frontend/node_modules
+
+# next.js
+frontend/.next/
+frontend/out/
+
+# production
+frontend/build
+
+# debug
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.pnpm-debug.log*
+
+# env files
+frontend/.env
+
+# vercel
+frontend/.vercel
+
+# typescript
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
