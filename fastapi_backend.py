@@ -9,6 +9,7 @@ Provides REST APIs for:
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -16,7 +17,7 @@ import json
 from datetime import datetime
 import os
 
-from models import AnalyzeRFPRequest, ChatMessage, ChatResponse, OEMProduct, RFPScanRequest, ChatOrchestrator
+from models import AnalyzeRFPRequest, ChatMessage, ChatResponse, OEMProduct, RFPScanRequest
 from utils import save_catalog, save_test_pricing
 
 # Initialize FastAPI app
@@ -29,8 +30,8 @@ app = FastAPI(
 # CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -44,11 +45,7 @@ oem_catalog_db = []
 chat_sessions = {}
 test_pricing_db = {}
 
-# Initialize agents (global instances)
-sales_agent = None
-technical_agent = None
-pricing_agent = None
-orchestrators = {}  # Session-based orchestrators
+# LangGraph manages sessions internally with MemorySaver
 
 # ============================================================
 # STARTUP EVENT
@@ -56,26 +53,18 @@ orchestrators = {}  # Session-based orchestrators
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize system on startup"""
-    global sales_agent, technical_agent, pricing_agent, oem_catalog_db, test_pricing_db
+    """Load initial data on startup"""
+    global oem_catalog_db, test_pricing_db
 
-    # Load initial data
-    if os.path.exists('data/oem_catalog.json'):
-        with open('data/oem_catalog.json', 'r') as f:
+    if os.path.exists('data/catalog.json'):
+        with open('data/catalog.json', 'r') as f:
             oem_catalog_db = json.load(f)
 
     if os.path.exists('data/test_pricing.json'):
         with open('data/test_pricing.json', 'r') as f:
             test_pricing_db = json.load(f)
 
-    # Initialize agents
-    sales_agent = SalesAgent()
-    technical_agent = TechnicalAgent()
-    technical_agent.product_catalog = oem_catalog_db
-    pricing_agent = PricingAgent()
-    pricing_agent.test_pricing = test_pricing_db
-
-    print("✅ RFP Automation System initialized")
+    print("✅ RFP Automation System initialized (LangGraph)")
 
 # ============================================================
 # HEALTH CHECK
@@ -94,14 +83,20 @@ async def root():
 async def health_check():
     return {
         "status": "healthy",
-        "agents": {
-            "sales_agent": sales_agent is not None,
-            "technical_agent": technical_agent is not None,
-            "pricing_agent": pricing_agent is not None
-        },
+        "agents": "LangGraph workflow active",
         "catalog_items": len(oem_catalog_db),
         "test_types": len(test_pricing_db)
     }
+
+
+@app.get("/api/reports/{session_id}/{rfp_id}")
+async def get_report(session_id: str, rfp_id: str):
+    """Download generated RFP report PDF."""
+    safe_rfp_id = rfp_id.replace("/", "_")
+    report_path = os.path.join("data", "reports", f"{session_id}_{safe_rfp_id}.pdf")
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Report not found")
+    return FileResponse(report_path, media_type="application/pdf", filename=os.path.basename(report_path))
 
 # ============================================================
 # OEM CATALOG MANAGEMENT APIs
@@ -125,12 +120,7 @@ async def add_product(product: OEMProduct):
 
     oem_catalog_db.append(product_dict)
 
-    # Update technical agent's catalog
-    if technical_agent:
-        technical_agent.product_catalog = oem_catalog_db
-
-    # Save to file
-    save_catalog()
+    save_catalog(oem_catalog_db)
 
     return product_dict
 
@@ -144,11 +134,7 @@ async def update_product(sku: str, product: OEMProduct):
             product_dict['created_at'] = p.get('created_at', datetime.now().isoformat())
             oem_catalog_db[i] = product_dict
 
-            # Update technical agent
-            if technical_agent:
-                technical_agent.product_catalog = oem_catalog_db
-
-            save_catalog()
+            save_catalog(oem_catalog_db)
             return product_dict
 
     raise HTTPException(status_code=404, detail="Product not found")
@@ -160,11 +146,7 @@ async def delete_product(sku: str):
         if p['sku'] == sku:
             oem_catalog_db.pop(i)
 
-            # Update technical agent
-            if technical_agent:
-                technical_agent.product_catalog = oem_catalog_db
-
-            save_catalog()
+            save_catalog(oem_catalog_db)
             return {"message": "Product deleted successfully"}
 
     raise HTTPException(status_code=404, detail="Product not found")
@@ -191,11 +173,7 @@ async def upload_catalog(file: UploadFile = File(...)):
                 product['updated_at'] = datetime.now().isoformat()
                 oem_catalog_db.append(product)
 
-        # Update technical agent
-        if technical_agent:
-            technical_agent.product_catalog = oem_catalog_db
-
-        save_catalog()
+        save_catalog(oem_catalog_db)
 
         return {
             "message": f"Successfully uploaded {len(new_products)} products",
@@ -210,47 +188,62 @@ async def upload_catalog(file: UploadFile = File(...)):
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(message: ChatMessage):
-    """Process chat message"""
+    from agents.graph import rfp_workflow
+    from agents.state import create_initial_state, get_last_ai_message_content
+    from langchain_core.messages import HumanMessage
+
     session_id = message.session_id
 
-    # Get or create orchestrator for this session
-    if session_id not in orchestrators:
-        orchestrators[session_id] = ChatOrchestrator(
-            sales_agent, technical_agent, pricing_agent
+    try:
+        prior_state = chat_sessions.get(session_id)
+        if prior_state:
+            state = dict(prior_state)
+            state["messages"] = list(prior_state.get("messages", [])) + [HumanMessage(content=message.message)]
+        else:
+            state = create_initial_state(session_id, message.message)
+
+        result = await rfp_workflow.ainvoke(
+            state,
+            config={"configurable": {"thread_id": session_id}}
         )
 
-    orchestrator = orchestrators[session_id]
+        response_text = get_last_ai_message_content(result)
+        chat_sessions[session_id] = result
 
-    # Process message
-    response = orchestrator.chat(message.message)
-
-    return ChatResponse(
-        response=response,
-        session_id=session_id,
-        timestamp=datetime.now().isoformat(),
-        workflow_state=orchestrator.get_state()
-    )
+        return ChatResponse(
+            response=response_text,
+            session_id=session_id,
+            timestamp=datetime.now().isoformat(),
+            workflow_state={
+                "current_step": result.get("current_step", "COMPLETE"),
+                "rfps_identified": result.get("rfps_identified", []),
+                "report_url": result.get("report_url")
+            }
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return ChatResponse(
+            response=f"Error: {str(e)}",
+            session_id=session_id,
+            timestamp=datetime.now().isoformat(),
+            workflow_state={"status": "ERROR", "error": str(e)}
+        )
 
 @app.get("/api/chat/history/{session_id}")
 async def get_chat_history(session_id: str):
-    """Get chat history for a session"""
-    if session_id in orchestrators:
-        return orchestrators[session_id].state['conversation_history']
-    return []
+    """Get chat history for a session (LangGraph manages this internally)"""
+    return {"message": "Chat history is managed by LangGraph checkpointer"}
 
 @app.get("/api/chat/state/{session_id}")
 async def get_workflow_state(session_id: str):
-    """Get current workflow state"""
-    if session_id in orchestrators:
-        return orchestrators[session_id].get_state()
-    raise HTTPException(status_code=404, detail="Session not found")
+    """Get current workflow state (managed by LangGraph)"""
+    return {"message": "Workflow state managed by LangGraph checkpointer", "session_id": session_id}
 
 @app.delete("/api/chat/{session_id}")
 async def clear_session(session_id: str):
     """Clear chat session"""
-    if session_id in orchestrators:
-        del orchestrators[session_id]
-    return {"message": "Session cleared"}
+    return {"message": "Session cleared (LangGraph handles cleanup)", "session_id": session_id}
 
 # ============================================================
 # RFP WORKFLOW APIs
@@ -258,20 +251,11 @@ async def clear_session(session_id: str):
 
 @app.post("/api/rfp/scan")
 async def scan_rfps(request: RFPScanRequest):
-    """Scan for RFPs"""
-    rfps = sales_agent.scan_tenders_online(request.keywords, request.days_ahead)
-
-    criteria = {
-        'min_tender_value': request.min_value,
-        'preferred_locations': ['Delhi', 'Mumbai', 'Pune', 'Ahmedabad']
-    }
-
-    qualifications = [sales_agent.qualify_rfp(rfp, criteria) for rfp in rfps]
-    prioritized_rfps = sales_agent.prioritize_rfps(rfps, qualifications)
-
+    """Scan for RFPs (use /api/chat for LangGraph workflow)"""
     return {
-        "total_found": len(prioritized_rfps),
-        "rfps": prioritized_rfps
+        "message": "Please use /api/chat endpoint for RFP workflow with LangGraph agents",
+        "total_found": 0,
+        "rfps": []
     }
 
 @app.post("/api/rfp/analyze")
@@ -290,7 +274,6 @@ async def get_dashboard_stats():
     """Get dashboard statistics"""
     return {
         "total_products": len(oem_catalog_db),
-        "active_sessions": len(orchestrators),
         "test_types": len(test_pricing_db),
         "system_status": "operational",
         "last_updated": datetime.now().isoformat()

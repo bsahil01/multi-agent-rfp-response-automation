@@ -8,6 +8,7 @@ python-multipart==0.0.6
 langchain==0.1.0
 langchain-groq==0.0.1
 langchain-community==0.0.10
+langgraph==0.0.26
 
 # Environment Variables
 python-dotenv==1.0.0
