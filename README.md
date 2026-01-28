@@ -261,6 +261,12 @@ Before you begin, ensure you have the following installed:
 
 ### Starting the Application
 
+**Option 0: FastAPI Backend (recommended for API usage)**
+```bash
+uvicorn fastapi_backend:app --reload --host 0.0.0.0 --port 8000
+```
+Health check: `http://localhost:8000/health`
+
 **Option 1: Flask Web Interface**
 ```bash
 python app.py
