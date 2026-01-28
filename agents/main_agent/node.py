@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state import AgentState, WorkflowStep, NodeName
 from llm_config import get_shared_llm
-from utils import generate_pdf_report
+from backend.utils import generate_pdf_report
 from main_agent.tools import extract_rfp_selection, is_scan_request, is_selection_request
 
 
