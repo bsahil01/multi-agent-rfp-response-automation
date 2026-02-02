@@ -12,7 +12,7 @@ import { Loader2, Mail, Lock, AlertCircle, ArrowRight, Sparkles, Shield, Zap } f
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated, loading: authLoading } = useAuth();
+  const { login, isAuthenticated, loading: authLoading, continueAsGuest } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -44,6 +44,11 @@ export default function LoginPage() {
       setError(result.error || "Login failed. Please check your credentials.");
     }
     setLoading(false);
+  };
+
+  const handleGuestAccess = () => {
+    continueAsGuest();
+    router.push("/");
   };
 
   return (
@@ -196,6 +201,31 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
+
+          {/* Guest Access Option */}
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">Or</span>
+              </div>
+            </div>
+            
+            <Button 
+              variant="outline" 
+              className="w-full mt-4 h-11 font-medium border-border hover:bg-primary/10 hover:border-primary hover:text-primary transition-all duration-200"
+              onClick={handleGuestAccess}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Continue as Guest
+            </Button>
+            
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Explore the platform with limited access
+            </p>
+          </div>
 
           {/* Sign Up Link */}
           <div className="mt-8 text-center">
