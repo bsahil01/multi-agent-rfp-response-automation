@@ -33,7 +33,7 @@ import {
 
 export default function Dashboard() {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isGuest, canEdit, canCreate } = useAuth();
   const [stats] = useState(mockDashboardStats);
   const [agents] = useState(mockAgentStatus);
   const [rfps, setRfps] = useState(mockRFPs);
@@ -50,6 +50,15 @@ export default function Dashboard() {
   };
 
   const handleProcessRFP = (rfp) => {
+    if (!canEdit(rfp.createdBy)) {
+      toast({
+        title: "Access Denied",
+        description: "Guests cannot process RFPs. Please sign in to access this feature.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setRfps((prev) =>
       prev.map((item) =>
         item.id === rfp.id
@@ -64,6 +73,15 @@ export default function Dashboard() {
   };
 
   const handleDownloadResponse = (rfp) => {
+    if (!canEdit(rfp.createdBy)) {
+      toast({
+        title: "Access Denied", 
+        description: "Guests cannot download responses. Please sign in to access this feature.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     toast({
       title: "Download",
       description: `Preparing response for ${rfp.id}...`,
@@ -84,11 +102,21 @@ export default function Dashboard() {
           <main className="flex-1 overflow-y-auto">
             <div className="p-6">
               <div className="mb-6">
-                <h2 className="text-xl font-semibold text-foreground">
-                  Welcome back, {user?.name?.split(" ")[0]}
-                </h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-semibold text-foreground">
+                    Welcome back, {user?.name?.split(" ")[0]}
+                  </h2>
+                  {isGuest && (
+                    <Badge variant="outline" className="text-xs">
+                      Guest Mode
+                    </Badge>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {"Here's what's happening with your RFP pipeline today."}
+                  {isGuest 
+                    ? "You're viewing in guest mode. Sign in to access all features."
+                    : "Here's what's happening with your RFP pipeline today."
+                  }
                 </p>
               </div>
 
@@ -113,11 +141,24 @@ export default function Dashboard() {
                   />
                   Refresh
                 </Button>
-                <Button size="sm" onClick={() => router.push("/rfps?new=1")}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  New RFP
-                </Button>
+                {canCreate() && (
+                  <Button size="sm" onClick={() => router.push("/rfps?new=1")}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    New RFP
+                  </Button>
+                )}
+                {isGuest && (
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => router.push("/signup")}
+                    className="border-border hover:bg-primary/10 hover:border-primary hover:text-primary transition-all duration-200"
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Sign Up to Create RFPs
+                  </Button>
+                )}
               </div>
             </div>
 
